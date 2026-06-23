@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import {
   IndianRupee,
@@ -14,18 +14,10 @@ import {
 import { formatRupees, formatShortDate } from "@/lib/format";
 import { LOW_STOCK_THRESHOLD } from "@/lib/admin/types";
 import { useAdmin } from "@/lib/admin/store";
-import {
-  Button,
-  ConfirmDialog,
-  EmptyState,
-  PageHeader,
-  StatCard,
-  StatusPill,
-} from "./ui";
+import { Button, EmptyState, PageHeader, StatCard, StatusPill } from "./ui";
 
 export function Dashboard() {
-  const { data, resetDemo } = useAdmin();
-  const [confirmReset, setConfirmReset] = useState(false);
+  const { data, reload, loading } = useAdmin();
 
   const stats = useMemo(() => {
     const orders = data.orders;
@@ -62,10 +54,12 @@ export function Dashboard() {
         action={
           <Button
             variant="secondary"
-            onClick={() => setConfirmReset(true)}
+            onClick={reload}
+            disabled={loading}
             className="!px-3 !py-2 text-[13px]"
           >
-            <RotateCcw className="h-4 w-4" /> Reset demo
+            <RotateCcw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />{" "}
+            Refresh
           </Button>
         }
       />
@@ -191,15 +185,6 @@ export function Dashboard() {
           )}
         </section>
       </div>
-
-      <ConfirmDialog
-        open={confirmReset}
-        title="Reset demo data?"
-        message="This clears any edits you've made and restores the original sample products, orders, categories and banners."
-        confirmLabel="Reset"
-        onConfirm={resetDemo}
-        onClose={() => setConfirmReset(false)}
-      />
     </>
   );
 }

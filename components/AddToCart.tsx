@@ -1,16 +1,16 @@
 "use client";
 
 import { Minus, Plus } from "lucide-react";
-import { useCart } from "@/context/CartContext";
+import { useCart, type CartProduct } from "@/context/CartContext";
 
 type Props = {
-  productId: string;
+  product: CartProduct;
   full?: boolean;
 };
 
-export function AddToCart({ productId, full = false }: Props) {
+export function AddToCart({ product, full = false }: Props) {
   const { qtyOf, addItem, decrement } = useCart();
-  const qty = qtyOf(productId);
+  const qty = qtyOf(product.id);
 
   // Cards wrap their content in a <Link>; stop the click from navigating.
   const stop = (e: React.MouseEvent) => {
@@ -24,7 +24,7 @@ export function AddToCart({ productId, full = false }: Props) {
         type="button"
         onClick={(e) => {
           stop(e);
-          addItem(productId);
+          addItem(product);
         }}
         className={
           full
@@ -52,7 +52,7 @@ export function AddToCart({ productId, full = false }: Props) {
         aria-label="Decrease quantity"
         onClick={(e) => {
           stop(e);
-          decrement(productId);
+          decrement(product.id);
         }}
         className={
           full
@@ -74,7 +74,7 @@ export function AddToCart({ productId, full = false }: Props) {
         aria-label="Increase quantity"
         onClick={(e) => {
           stop(e);
-          addItem(productId);
+          addItem(product);
         }}
         className={
           full

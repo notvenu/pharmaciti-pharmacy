@@ -1,30 +1,61 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
-import { searchProducts } from "@/lib/products";
 
 type Props = {
   placeholder: string;
   className?: string;
 };
 
+type Suggestion = {
+  id: string;
+  name: string;
+  brand: string;
+  price: number;
+  tint: string;
+  imageUrl?: string | null;
+};
+
 /**
- * Search input with a live typeahead dropdown. As the user types, matching
- * products are suggested below; Enter (or "see all results") routes to the
- * products page, and a suggestion routes straight to that product.
+ * Search input with a live typeahead dropdown. Suggestions are fetched from the
+ * `/api/products/search` Route Handler (debounced) so we never ship the whole
+ * catalogue to the client. Enter routes to the products page; a suggestion
+ * routes straight to that product.
  */
 export function SearchBox({ placeholder, className }: Props) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [focused, setFocused] = useState(false);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const suggestions = useMemo(() => {
+  // Debounced fetch of typeahead suggestions. All setState happens inside the
+  // async callback (never synchronously in the effect body).
+  useEffect(() => {
     const query = q.trim();
-    if (query.length < 1) return [];
-    return searchProducts(query).slice(0, 6);
+    const ctrl = new AbortController();
+    const t = setTimeout(async () => {
+      if (query.length < 1) {
+        setSuggestions([]);
+        return;
+      }
+      try {
+        const res = await fetch(
+          `/api/products/search?q=${encodeURIComponent(query)}`,
+          { signal: ctrl.signal },
+        );
+        const json = (await res.json()) as { results: Suggestion[] };
+        setSuggestions(json.results ?? []);
+      } catch {
+        /* aborted or offline — keep previous suggestions */
+      }
+    }, 180);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
   }, [q]);
 
   const go = (href: string) => {
@@ -72,10 +103,19 @@ export function SearchBox({ placeholder, className }: Props) {
                     className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-sea-50"
                   >
                     <span
-                      className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-xs font-bold text-ink-soft"
+                      className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg text-xs font-bold text-ink-soft"
                       style={{ background: p.tint }}
                     >
-                      {p.name.slice(0, 1)}
+                      {p.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={p.imageUrl}
+                          alt={p.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        p.name.slice(0, 1)
+                      )}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold text-ink">

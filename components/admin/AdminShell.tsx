@@ -95,8 +95,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!mobileOpen) {
-      setShow(false);
-      return;
+      // Defer the reset so it isn't a synchronous setState in the effect body.
+      const t = setTimeout(() => setShow(false), 0);
+      return () => clearTimeout(t);
     }
     const raf = requestAnimationFrame(() => setShow(true));
     document.body.style.overflow = "hidden";

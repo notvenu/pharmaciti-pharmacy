@@ -12,20 +12,22 @@ type Props = {
   title?: string;
 };
 
+function CartBadge({ count, light }: { count: number; light?: boolean }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      className={`absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full px-1 text-[10px] font-bold ${
+        light ? "bg-white text-sea-600" : "bg-sea-500 text-white"
+      }`}
+    >
+      {count}
+    </span>
+  );
+}
+
 export function Header({ variant = "home", title }: Props) {
   const router = useRouter();
   const { itemCount } = useCart();
-
-  const CartBadge = ({ light }: { light?: boolean }) =>
-    itemCount > 0 ? (
-      <span
-        className={`absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full px-1 text-[10px] font-bold ${
-          light ? "bg-white text-sea-600" : "bg-sea-500 text-white"
-        }`}
-      >
-        {itemCount}
-      </span>
-    ) : null;
 
   return (
     <header className="sticky top-0 z-40">
@@ -104,7 +106,7 @@ export function Header({ variant = "home", title }: Props) {
           >
             <ShoppingBag className="h-4 w-4" />
             Cart
-            <CartBadge light />
+            <CartBadge count={itemCount} light />
           </Link>
         </div>
       </div>

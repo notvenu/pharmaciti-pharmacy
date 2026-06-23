@@ -112,7 +112,7 @@ export function OrdersAdmin() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-extrabold text-ink">
-                    {o.id}
+                    PH-{o.orderNo}
                   </span>
                   <StatusPill status={o.status} />
                 </div>
@@ -139,7 +139,7 @@ export function OrdersAdmin() {
       <Drawer
         open={!!active}
         onClose={() => setOpenId(null)}
-        title={active ? `Order ${active.id}` : "Order"}
+        title={active ? `Order PH-${active.orderNo}` : "Order"}
       >
         {active && (
           <div className="space-y-5">

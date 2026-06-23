@@ -15,6 +15,7 @@ import { LOW_STOCK_THRESHOLD } from "@/lib/admin/types";
 import type { AdminProduct } from "@/lib/admin/types";
 import { genId, useAdmin } from "@/lib/admin/store";
 import { CategoryIcon } from "@/components/CategoryIcon";
+import { ImageUpload } from "./ImageUpload";
 import {
   Button,
   ConfirmDialog,
@@ -250,7 +251,18 @@ function ProductForm({
           </div>
         </div>
 
-        <Field label="Tile colour">
+        <Field
+          label="Product photo"
+          hint="Shown instead of the icon. Square images look best."
+        >
+          <ImageUpload
+            value={d.imageUrl}
+            onChange={(u) => set("imageUrl", u)}
+            folder="products"
+          />
+        </Field>
+
+        <Field label="Tile colour" hint="Background shown when there's no photo.">
           <div className="flex flex-wrap gap-2">
             {TINT_OPTIONS.map((t) => (
               <button
@@ -407,15 +419,24 @@ export function ProductsAdmin() {
               >
                 <div className="flex items-start gap-3">
                   <span
-                    className="grid h-12 w-12 shrink-0 place-items-center rounded-xl"
+                    className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl"
                     style={{ backgroundColor: p.tint }}
                   >
-                    {category && (
-                      <CategoryIcon
-                        iconKey={category.iconKey}
-                        className="h-6 w-6 text-ink/65"
-                        strokeWidth={1.6}
+                    {p.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={p.imageUrl}
+                        alt={p.name}
+                        className="absolute inset-0 h-full w-full object-cover"
                       />
+                    ) : (
+                      category && (
+                        <CategoryIcon
+                          iconKey={category.iconKey}
+                          className="h-6 w-6 text-ink/65"
+                          strokeWidth={1.6}
+                        />
+                      )
                     )}
                   </span>
                   <div className="min-w-0 flex-1">

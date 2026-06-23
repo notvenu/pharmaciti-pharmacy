@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { Plus, Pencil, Trash2, LayoutGrid, Images } from "lucide-react";
-import { CategoryIcon, ICON_KEYS } from "@/components/CategoryIcon";
-import type { IconKey } from "@/lib/products";
+import { CategoryIcon } from "@/components/CategoryIcon";
 import type { AdminCategory, Banner } from "@/lib/admin/types";
 import { genId, useAdmin } from "@/lib/admin/store";
+import { ImageUpload } from "./ImageUpload";
 import {
   Button,
   ConfirmDialog,
@@ -77,28 +77,15 @@ function CategoryForm({
           />
         </Field>
 
-        <Field label="Icon">
-          <div className="grid grid-cols-6 gap-2 rounded-xl border border-hairline p-2.5">
-            {ICON_KEYS.map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setD({ ...d, iconKey: k as IconKey })}
-                aria-label={k}
-                className={`grid aspect-square place-items-center rounded-lg transition ${
-                  d.iconKey === k
-                    ? "bg-sea-500 text-white"
-                    : "bg-hairline/40 text-ink-soft hover:bg-sea-50"
-                }`}
-              >
-                <CategoryIcon
-                  iconKey={k}
-                  className="h-5 w-5"
-                  strokeWidth={1.8}
-                />
-              </button>
-            ))}
-          </div>
+        <Field
+          label="Category image"
+          hint="Fills the whole tile. Falls back to an icon if left empty."
+        >
+          <ImageUpload
+            value={d.imageUrl}
+            onChange={(u) => setD({ ...d, imageUrl: u })}
+            folder="categories"
+          />
         </Field>
       </div>
 
@@ -160,12 +147,21 @@ function CategoriesSection() {
               key={c.id}
               className="group relative rounded-2xl border border-hairline bg-white p-4 text-center shadow-card"
             >
-              <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-sea-50 text-sea-600">
-                <CategoryIcon
-                  iconKey={c.iconKey}
-                  className="h-7 w-7"
-                  strokeWidth={1.6}
-                />
+              <span className="relative mx-auto grid h-14 w-14 place-items-center overflow-hidden rounded-2xl bg-sea-50 text-sea-600">
+                {c.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={c.imageUrl}
+                    alt={c.name}
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                ) : (
+                  <CategoryIcon
+                    iconKey={c.iconKey}
+                    className="h-7 w-7"
+                    strokeWidth={1.6}
+                  />
+                )}
               </span>
               <p className="mt-2.5 line-clamp-2 text-[13px] font-bold text-ink">
                 {c.name}

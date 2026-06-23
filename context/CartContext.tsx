@@ -10,15 +10,26 @@ import {
   useState,
 } from "react";
 import { Check } from "lucide-react";
-import { getProduct, type Product } from "@/lib/products";
 
-const STORAGE_KEY = "pharmaciti_cart_v1";
+const STORAGE_KEY = "pharmaciti_cart_v2";
 export const FREE_DELIVERY_THRESHOLD = 500;
 
-type CartLine = { productId: string; qty: number };
+/** Minimal product snapshot the cart needs to render + check out. */
+export type CartProduct = {
+  id: string;
+  name: string;
+  pack: string;
+  price: number;
+  mrp: number;
+  tint: string;
+  category: string;
+  imageUrl?: string;
+};
+
+type CartLine = { product: CartProduct; qty: number };
 
 export type DetailedLine = {
-  product: Product;
+  product: CartProduct;
   qty: number;
   lineTotal: number;
   lineMrp: number;
@@ -34,7 +45,7 @@ type CartValue = {
   remainingForFreeDelivery: number;
   hasFreeDelivery: boolean;
   qtyOf: (productId: string) => number;
-  addItem: (productId: string, qty?: number) => void;
+  addItem: (product: CartProduct, qty?: number) => void;
   decrement: (productId: string) => void;
   setQty: (productId: string, qty: number) => void;
   removeItem: (productId: string) => void;
@@ -49,12 +60,16 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setLines(JSON.parse(raw));
-    } catch {
-      /* ignore corrupt storage */
-    }
+    // Defer so we're not calling setState synchronously inside the effect body.
+    const t = setTimeout(() => {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) setLines(JSON.parse(raw));
+      } catch {
+        /* ignore corrupt storage */
+      }
+    }, 0);
+    return () => clearTimeout(t);
   }, []);
 
   useEffect(() => {
@@ -72,18 +87,19 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addItem = useCallback(
-    (productId: string, qty = 1) => {
+    (product: CartProduct, qty = 1) => {
       setLines((prev) => {
-        const existing = prev.find((l) => l.productId === productId);
+        const existing = prev.find((l) => l.product.id === product.id);
         if (existing) {
           return prev.map((l) =>
-            l.productId === productId ? { ...l, qty: l.qty + qty } : l,
+            l.product.id === product.id
+              ? { ...l, qty: l.qty + qty, product }
+              : l,
           );
         }
-        return [...prev, { productId, qty }];
+        return [...prev, { product, qty }];
       });
-      const p = getProduct(productId);
-      showToast(p ? `${p.name} added` : "Added to cart");
+      showToast(`${product.name} added`);
     },
     [showToast],
   );
@@ -91,7 +107,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const decrement = useCallback((productId: string) => {
     setLines((prev) =>
       prev
-        .map((l) => (l.productId === productId ? { ...l, qty: l.qty - 1 } : l))
+        .map((l) =>
+          l.product.id === productId ? { ...l, qty: l.qty - 1 } : l,
+        )
         .filter((l) => l.qty > 0),
     );
   }, []);
@@ -99,30 +117,24 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const setQty = useCallback((productId: string, qty: number) => {
     setLines((prev) =>
       prev
-        .map((l) => (l.productId === productId ? { ...l, qty } : l))
+        .map((l) => (l.product.id === productId ? { ...l, qty } : l))
         .filter((l) => l.qty > 0),
     );
   }, []);
 
   const removeItem = useCallback((productId: string) => {
-    setLines((prev) => prev.filter((l) => l.productId !== productId));
+    setLines((prev) => prev.filter((l) => l.product.id !== productId));
   }, []);
 
   const clear = useCallback(() => setLines([]), []);
 
   const value = useMemo<CartValue>(() => {
-    const items: DetailedLine[] = lines
-      .map((l) => {
-        const product = getProduct(l.productId);
-        if (!product) return null;
-        return {
-          product,
-          qty: l.qty,
-          lineTotal: product.price * l.qty,
-          lineMrp: product.mrp * l.qty,
-        };
-      })
-      .filter((x): x is DetailedLine => x !== null);
+    const items: DetailedLine[] = lines.map((l) => ({
+      product: l.product,
+      qty: l.qty,
+      lineTotal: l.product.price * l.qty,
+      lineMrp: l.product.mrp * l.qty,
+    }));
 
     const subtotal = items.reduce((s, it) => s + it.lineTotal, 0);
     const mrpTotal = items.reduce((s, it) => s + it.lineMrp, 0);
@@ -139,7 +151,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       remainingForFreeDelivery: Math.max(0, FREE_DELIVERY_THRESHOLD - subtotal),
       hasFreeDelivery,
       qtyOf: (productId: string) =>
-        lines.find((l) => l.productId === productId)?.qty ?? 0,
+        lines.find((l) => l.product.id === productId)?.qty ?? 0,
       addItem,
       decrement,
       setQty,

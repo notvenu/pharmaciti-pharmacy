@@ -17,21 +17,30 @@ export function ProductCard({ product }: { product: Product }) {
           style={{ backgroundColor: product.tint }}
         >
           {off > 0 && (
-            <span className="absolute left-2 top-2 rounded-md bg-leaf-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+            <span className="absolute left-2 top-2 z-10 rounded-md bg-leaf-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
               {off}% OFF
             </span>
           )}
           {product.rx && (
-            <span className="absolute right-2 top-2 rounded bg-white/85 px-1.5 py-0.5 text-[9px] font-bold text-sea-600">
+            <span className="absolute right-2 top-2 z-10 rounded bg-white/85 px-1.5 py-0.5 text-[9px] font-bold text-sea-600">
               Rx
             </span>
           )}
-          {category && (
-            <CategoryIcon
-              iconKey={category.iconKey}
-              className="h-12 w-12 text-ink/60 transition group-hover:scale-110"
-              strokeWidth={1.4}
+          {product.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={product.imageUrl}
+              alt={product.name}
+              className="absolute inset-0 h-full w-full object-cover transition group-hover:scale-105"
             />
+          ) : (
+            category && (
+              <CategoryIcon
+                iconKey={category.iconKey}
+                className="h-12 w-12 text-ink/60 transition group-hover:scale-110"
+                strokeWidth={1.4}
+              />
+            )
           )}
         </div>
 
@@ -59,7 +68,7 @@ export function ProductCard({ product }: { product: Product }) {
             </div>
           )}
         </div>
-        <AddToCart productId={product.id} />
+        <AddToCart product={product} />
       </div>
     </article>
   );

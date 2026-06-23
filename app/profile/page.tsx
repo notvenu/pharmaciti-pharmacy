@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 import {
   User,
@@ -9,18 +7,23 @@ import {
   Headphones,
   ChevronRight,
   ShoppingBag,
+  ShieldCheck,
 } from "lucide-react";
 import { Header } from "@/components/Header";
 import { BottomNav } from "@/components/BottomNav";
+import { SignOutButton } from "@/components/SignOutButton";
+import { getProfile } from "@/lib/auth";
 
 const ROWS = [
-  { icon: Package, label: "My Orders", desc: "Track & reorder" },
-  { icon: MapPin, label: "Saved Addresses", desc: "Home, Office & more" },
-  { icon: Heart, label: "Wishlist", desc: "Items you love" },
-  { icon: Headphones, label: "Help & Support", desc: "We're here to help" },
+  { icon: Package, label: "My Orders", desc: "Track & reorder", href: "/orders" },
+  { icon: MapPin, label: "Saved Addresses", desc: "Home, Office & more", href: "/profile" },
+  { icon: Heart, label: "Wishlist", desc: "Items you love", href: "/profile" },
+  { icon: Headphones, label: "Help & Support", desc: "We're here to help", href: "/profile" },
 ];
 
-export default function ProfilePage() {
+export default async function ProfilePage() {
+  const profile = await getProfile();
+
   return (
     <div className="mx-auto w-full max-w-[1200px]">
       <Header variant="inner" title="Profile" />
@@ -32,19 +35,29 @@ export default function ProfilePage() {
             <User className="h-7 w-7 text-sea-500" />
           </span>
           <div className="flex-1">
-            <p className="text-base font-bold text-ink">Guest User</p>
-            <p className="text-[12px] text-muted">Sign in to sync your orders</p>
+            <p className="text-base font-bold text-ink">
+              {profile?.full_name?.trim() || (profile ? "Your account" : "Guest User")}
+            </p>
+            <p className="text-[12px] text-muted">
+              {profile?.phone || (profile ? "Signed in" : "Sign in to sync your orders")}
+            </p>
           </div>
-          <button className="rounded-xl bg-sea-500 px-4 py-2 text-xs font-bold text-white shadow-soft">
-            Sign in
-          </button>
+          {!profile && (
+            <Link
+              href="/login?next=/profile"
+              className="rounded-xl bg-sea-500 px-4 py-2 text-xs font-bold text-white shadow-soft"
+            >
+              Sign in
+            </Link>
+          )}
         </div>
 
         {/* Rows */}
         <div className="mt-4 divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-white shadow-card">
-          {ROWS.map(({ icon: Icon, label, desc }) => (
-            <button
+          {ROWS.map(({ icon: Icon, label, desc, href }) => (
+            <Link
               key={label}
+              href={href}
               className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-sea-50/40"
             >
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-sea-50">
@@ -57,9 +70,19 @@ export default function ProfilePage() {
                 <span className="block text-[11px] text-muted">{desc}</span>
               </span>
               <ChevronRight className="h-4 w-4 text-muted" />
-            </button>
+            </Link>
           ))}
         </div>
+
+        {profile?.role === "admin" && (
+          <Link
+            href="/admin"
+            className="mt-4 flex items-center justify-center gap-2 rounded-xl border border-sea-200 bg-sea-50/60 py-3 text-sm font-bold text-sea-600 transition hover:bg-sea-50"
+          >
+            <ShieldCheck className="h-4 w-4" />
+            Go to Admin panel
+          </Link>
+        )}
 
         <Link
           href="/cart"
@@ -69,9 +92,7 @@ export default function ProfilePage() {
           View your cart
         </Link>
 
-        <p className="mt-4 text-center text-[11px] text-muted">
-          Demo profile — sign in &amp; order history are illustrative only.
-        </p>
+        {profile && <SignOutButton />}
       </main>
 
       <BottomNav />

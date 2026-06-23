@@ -27,7 +27,10 @@ export type OrderItem = {
 };
 
 export type Order = {
+  /** UUID primary key. */
   id: string;
+  /** Human-friendly sequential number, shown as "PH-{orderNo}". */
+  orderNo: number;
   customer: string;
   phone: string;
   address: string;
@@ -45,6 +48,7 @@ export type AdminCategory = {
   name: string;
   iconKey: IconKey;
   href: string;
+  imageUrl?: string;
 };
 
 /** Editable homepage hero slide (text + CTA only; artwork stays in code). */

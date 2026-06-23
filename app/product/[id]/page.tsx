@@ -1,13 +1,7 @@
-"use client";
-
 import Link from "next/link";
-import { useParams } from "next/navigation";
 import { Star, ShieldCheck, Truck, Check } from "lucide-react";
-import {
-  getProduct,
-  getCategory,
-  productsByCategory,
-} from "@/lib/products";
+import { getProductById, getProductsByCategory } from "@/lib/data";
+import { getCategory } from "@/lib/products";
 import { formatRupees, discountPercent } from "@/lib/format";
 import { Header } from "@/components/Header";
 import { BottomNav } from "@/components/BottomNav";
@@ -15,10 +9,13 @@ import { AddToCart } from "@/components/AddToCart";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { ProductRail } from "@/components/ProductRail";
 
-export default function ProductDetailPage() {
-  const params = useParams();
-  const id = Array.isArray(params.id) ? params.id[0] : params.id;
-  const product = id ? getProduct(id) : undefined;
+export default async function ProductDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const product = await getProductById(id);
 
   if (!product) {
     return (
@@ -40,7 +37,7 @@ export default function ProductDetailPage() {
 
   const off = discountPercent(product.mrp, product.price);
   const category = getCategory(product.category);
-  const related = productsByCategory(product.category)
+  const related = (await getProductsByCategory(product.category))
     .filter((p) => p.id !== product.id)
     .slice(0, 6);
 
@@ -57,21 +54,30 @@ export default function ProductDetailPage() {
               style={{ backgroundColor: product.tint }}
             >
               {off > 0 && (
-                <span className="absolute left-4 top-4 rounded-lg bg-leaf-500 px-2 py-1 text-xs font-bold text-white">
+                <span className="absolute left-4 top-4 z-10 rounded-lg bg-leaf-500 px-2 py-1 text-xs font-bold text-white">
                   {off}% OFF
                 </span>
               )}
               {product.rx && (
-                <span className="absolute right-4 top-4 rounded-lg bg-white/85 px-2 py-1 text-xs font-bold text-sea-600">
+                <span className="absolute right-4 top-4 z-10 rounded-lg bg-white/85 px-2 py-1 text-xs font-bold text-sea-600">
                   Prescription
                 </span>
               )}
-              {category && (
-                <CategoryIcon
-                  iconKey={category.iconKey}
-                  className="h-28 w-28 text-ink/50"
-                  strokeWidth={1.2}
+              {product.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={product.imageUrl}
+                  alt={product.name}
+                  className="absolute inset-0 h-full w-full object-cover"
                 />
+              ) : (
+                category && (
+                  <CategoryIcon
+                    iconKey={category.iconKey}
+                    className="h-28 w-28 text-ink/50"
+                    strokeWidth={1.2}
+                  />
+                )
               )}
             </div>
           </div>
@@ -130,7 +136,7 @@ export default function ProductDetailPage() {
             <div className="mt-5 flex items-center gap-3 rounded-2xl border border-hairline bg-sea-50/60 px-4 py-3 text-sm">
               <Truck className="h-5 w-5 shrink-0 text-sea-500" />
               <span className="font-semibold text-ink">Free delivery</span>
-              <span className="text-muted">on orders above ₹500</span>
+              <span className="text-muted">on every order</span>
             </div>
             <div className="mt-2 flex items-center gap-3 rounded-2xl border border-hairline bg-white px-4 py-3 text-sm">
               <ShieldCheck className="h-5 w-5 shrink-0 text-leaf-500" />
@@ -140,7 +146,7 @@ export default function ProductDetailPage() {
 
             {/* Desktop add */}
             <div className="mt-6 hidden max-w-sm md:block">
-              <AddToCart productId={product.id} full />
+              <AddToCart product={product} full />
             </div>
           </div>
         </div>
@@ -165,7 +171,7 @@ export default function ProductDetailPage() {
             )}
           </div>
           <div className="w-44">
-            <AddToCart productId={product.id} full />
+            <AddToCart product={product} full />
           </div>
         </div>
       </div>

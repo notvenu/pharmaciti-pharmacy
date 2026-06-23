@@ -19,11 +19,15 @@ export function WelcomeModal() {
 
   useEffect(() => {
     if (isAdmin) return;
-    try {
-      if (!sessionStorage.getItem(STORAGE_KEY)) setOpen(true);
-    } catch {
-      setOpen(true);
-    }
+    // Defer so we're not calling setState synchronously inside the effect body.
+    const t = setTimeout(() => {
+      try {
+        if (!sessionStorage.getItem(STORAGE_KEY)) setOpen(true);
+      } catch {
+        setOpen(true);
+      }
+    }, 0);
+    return () => clearTimeout(t);
   }, [isAdmin]);
 
   const close = () => {

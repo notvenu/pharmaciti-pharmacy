@@ -7,12 +7,23 @@ import { ProductRail } from "@/components/ProductRail";
 import { BottomNav } from "@/components/BottomNav";
 import { Logo } from "@/components/Logo";
 import {
-  bestsellers,
-  dealsOfTheDay,
-  productsByCategory,
-} from "@/lib/products";
+  getActiveBanners,
+  getBestsellers,
+  getCategoryTiles,
+  getDealsOfTheDay,
+  getProductsByCategory,
+} from "@/lib/data";
 
-export default function HomePage() {
+export default async function HomePage() {
+  const [banners, tiles, bestsellers, dealsOfTheDay, wellness] =
+    await Promise.all([
+      getActiveBanners(),
+      getCategoryTiles(),
+      getBestsellers(),
+      getDealsOfTheDay(),
+      getProductsByCategory("wellness"),
+    ]);
+
   return (
     <div className="mx-auto w-full max-w-[1200px]">
       <Header variant="home" />
@@ -43,21 +54,25 @@ export default function HomePage() {
           </div>
         </section>
 
-        <HeroBanner />
+        <HeroBanner banners={banners} />
 
-        <PopularCategories />
+        <PopularCategories tiles={tiles} />
 
-        <ProductRail title="Bestsellers" products={bestsellers} href="/products" />
+        {bestsellers.length > 0 && (
+          <ProductRail title="Bestsellers" products={bestsellers} href="/products" />
+        )}
         <ProductRail
           title="Deals of the day"
           products={dealsOfTheDay}
           href="/products"
         />
-        <ProductRail
-          title="Wellness picks"
-          products={productsByCategory("wellness")}
-          href="/products?cat=wellness"
-        />
+        {wellness.length > 0 && (
+          <ProductRail
+            title="Wellness picks"
+            products={wellness}
+            href="/products?cat=wellness"
+          />
+        )}
 
         <Footer />
       </main>
