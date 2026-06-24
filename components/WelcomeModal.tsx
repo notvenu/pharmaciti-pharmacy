@@ -109,7 +109,7 @@ export function WelcomeModal() {
                 <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-sea-50">
                   <Icon className="h-5 w-5 text-sea-600" />
                 </span>
-                <span className="text-[13px] font-semibold uppercase leading-tight text-ink">
+                <span className="text-[13px] font-bold uppercase leading-tight text-ink">
                   {label}
                 </span>
               </div>

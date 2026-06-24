@@ -107,6 +107,22 @@ body {
   animation: fadeUp 0.4s ease both;
 }
 
+/* Dropdown reveal — slides straight down from its top edge */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scaleY(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+.animate-slide-down {
+  transform-origin: top;
+  animation: slideDown 0.2s ease both;
+}
+
 /* Soft pulsing glow ring for the home category tiles */
 @keyframes tileGlow {
   0%,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Search,
@@ -14,6 +14,8 @@ import {
   Bandage,
   Thermometer,
   Sparkles,
+  ChevronRight,
+  Check,
   type LucideIcon,
 } from "lucide-react";
 import { Header } from "@/components/Header";
@@ -49,6 +51,25 @@ export function ProductsView({ products }: { products: Product[] }) {
   const [q, setQ] = useState(qParam);
   const [cat, setCat] = useState(catParam);
   const [sub, setSub] = useState("all");
+  const [subOpen, setSubOpen] = useState(false);
+  const subMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close the category dropdown on outside click or Escape.
+  useEffect(() => {
+    if (!subOpen) return;
+    function onPointerDown(e: PointerEvent) {
+      if (!subMenuRef.current?.contains(e.target as Node)) setSubOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setSubOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [subOpen]);
 
   // Re-sync local state when the URL params change. This is the React-blessed
   // "adjust state while rendering" pattern (no effect, no cascading render):
@@ -98,39 +119,87 @@ export function ProductsView({ products }: { products: Product[] }) {
           />
         </div>
 
-        {cat === "pharmacy" && (
-          <div className="no-scrollbar mt-4 flex gap-4 overflow-x-auto pb-1">
-            {PHARMACY_SUBS.map(({ id, name, Icon }) => {
-              const isActive = sub === id;
-              return (
+        {cat === "pharmacy" &&
+          (() => {
+            const current =
+              PHARMACY_SUBS.find((s) => s.id === sub) ?? PHARMACY_SUBS[0];
+            const CurrentIcon = current.Icon;
+            return (
+              <div ref={subMenuRef} className="relative z-30 -ml-4 mt-4 md:-ml-6">
+                {/* Collapsed control: a small tab hugging the screen's left
+                    edge — just the active category icon + an arrow. Everything
+                    else stays hidden until you tap it open. */}
                 <button
-                  key={id}
                   type="button"
-                  onClick={() => setSub(id)}
-                  aria-pressed={isActive}
-                  className="group flex shrink-0 flex-col items-center gap-1.5"
+                  onClick={() => setSubOpen((o) => !o)}
+                  aria-haspopup="listbox"
+                  aria-expanded={subOpen}
+                  aria-label="Choose category"
+                  className={`relative z-10 flex w-fit items-center gap-1.5 rounded-r-2xl border border-l-0 bg-white py-2 pl-3 pr-2.5 shadow-card transition ${
+                    subOpen
+                      ? "border-sea-300"
+                      : "border-hairline hover:border-sea-300"
+                  }`}
                 >
-                  <span
-                    className={`grid h-14 w-14 place-items-center rounded-full border transition ${
-                      isActive
-                        ? "border-sea-500 bg-sea-500 text-white shadow-soft"
-                        : "border-hairline bg-sea-50 text-sea-600 group-hover:border-sea-300"
-                    }`}
-                  >
-                    <Icon className="h-6 w-6" strokeWidth={1.9} />
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-sea-500 text-white">
+                    <CurrentIcon className="h-5 w-5" strokeWidth={1.9} />
                   </span>
-                  <span
-                    className={`text-[11px] font-semibold leading-tight ${
-                      isActive ? "text-sea-600" : "text-ink-soft"
+                  <ChevronRight
+                    className={`h-4 w-4 text-muted transition-transform duration-200 ${
+                      subOpen ? "rotate-90" : ""
                     }`}
-                  >
-                    {name}
-                  </span>
+                  />
                 </button>
-              );
-            })}
-          </div>
-        )}
+
+                {/* Dropdown: slides straight down — icon + label rows. */}
+                {subOpen && (
+                  <div
+                    role="listbox"
+                    className="animate-slide-down absolute left-4 top-full z-30 mt-2 w-60 overflow-hidden rounded-2xl border border-hairline bg-white shadow-lg md:left-6"
+                  >
+                    {PHARMACY_SUBS.map(({ id, name, Icon }) => {
+                      const isActive = sub === id;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          role="option"
+                          aria-selected={isActive}
+                          onClick={() => {
+                            setSub(id);
+                            setSubOpen(false);
+                          }}
+                          className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition ${
+                            isActive ? "bg-sea-50" : "hover:bg-sea-50/70"
+                          }`}
+                        >
+                          <span
+                            className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border transition ${
+                              isActive
+                                ? "border-sea-500 bg-sea-500 text-white"
+                                : "border-hairline bg-sea-50 text-sea-600"
+                            }`}
+                          >
+                            <Icon className="h-5 w-5" strokeWidth={1.9} />
+                          </span>
+                          <span
+                            className={`text-[13px] font-semibold ${
+                              isActive ? "text-sea-600" : "text-ink"
+                            }`}
+                          >
+                            {id === "all" ? "All categories" : name}
+                          </span>
+                          {isActive && (
+                            <Check className="ml-auto h-4 w-4 shrink-0 text-sea-500" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
         <div className="mt-5 flex items-center justify-between">
           <h1 className="text-lg font-bold text-ink md:text-xl">{heading}</h1>
