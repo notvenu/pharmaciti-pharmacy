@@ -14,6 +14,7 @@ import { formatRupees, formatShortDate } from "@/lib/format";
 import {
   ORDER_STATUSES,
   ORDER_STATUS_LABEL,
+  ORDER_STATUS_TRANSITIONS,
   type OrderStatus,
 } from "@/lib/admin/types";
 import { useAdmin } from "@/lib/admin/store";
@@ -151,20 +152,27 @@ export function OrdersAdmin() {
             </div>
 
             {/* Status changer */}
-            <Field label="Update status">
-              <Select
-                value={active.status}
-                onChange={(e) =>
-                  updateOrderStatus(active.id, e.target.value as OrderStatus)
-                }
-              >
-                {ORDER_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {ORDER_STATUS_LABEL[s]}
-                  </option>
-                ))}
-              </Select>
-            </Field>
+            {active.status === "confirming" ? (
+              <div className="rounded-xl border border-violet-200 bg-violet-50 px-3.5 py-3 text-[13px] font-semibold text-violet-700">
+                This is a prescription order awaiting confirmation. Add items and
+                confirm it from the <strong>Prescriptions</strong> screen.
+              </div>
+            ) : (
+              <Field label="Update status">
+                <Select
+                  value={active.status}
+                  onChange={(e) =>
+                    updateOrderStatus(active.id, e.target.value as OrderStatus)
+                  }
+                >
+                  {ORDER_STATUS_TRANSITIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {ORDER_STATUS_LABEL[s]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
 
             {/* Customer */}
             <div className="rounded-2xl border border-hairline bg-sea-50/30 p-4">

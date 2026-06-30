@@ -21,14 +21,9 @@ export function Dashboard() {
 
   const stats = useMemo(() => {
     const orders = data.orders;
-    const revenue = orders
-      .filter((o) => o.status !== "cancelled")
-      .reduce((s, o) => s + o.total, 0);
+    const revenue = orders.reduce((s, o) => s + o.total, 0);
     const pending = orders.filter(
-      (o) =>
-        o.status === "placed" ||
-        o.status === "packed" ||
-        o.status === "shipped",
+      (o) => o.status === "placed" || o.status === "confirming",
     ).length;
     const active = data.products.filter((p) => p.active);
     const lowStock = active

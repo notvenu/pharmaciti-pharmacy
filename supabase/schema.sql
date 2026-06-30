@@ -110,6 +110,20 @@ create table if not exists public.prescriptions (
 );
 create index if not exists prescriptions_user_idx on public.prescriptions (user_id);
 
+-- Saved delivery addresses a customer can reuse at checkout / when ordering by
+-- prescription. Owner-only via RLS.
+create table if not exists public.addresses (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  label       text not null default '',
+  recipient   text not null default '',
+  phone       text not null default '',
+  line        text not null,
+  is_default  boolean not null default false,
+  created_at  timestamptz not null default now()
+);
+create index if not exists addresses_user_idx on public.addresses (user_id);
+
 -- One-time codes for phone sign-in. Written/read only by the server (service
 -- role) — RLS is on with no policies, so anon/authenticated can never touch it.
 create table if not exists public.phone_otps (
@@ -354,6 +368,12 @@ drop policy if exists prescriptions_update_admin on public.prescriptions;
 create policy prescriptions_update_admin on public.prescriptions
   for update using (public.is_admin()) with check (public.is_admin());
 
+-- addresses: a customer fully manages their own saved addresses.
+alter table public.addresses enable row level security;
+drop policy if exists addresses_all_own on public.addresses;
+create policy addresses_all_own on public.addresses
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 -- ── Storage: prescription uploads ──────────────────────────────────────────
 insert into storage.buckets (id, name, public)
 values ('prescriptions', 'prescriptions', false)
@@ -400,6 +420,279 @@ drop policy if exists catalog_admin_delete on storage.objects;
 create policy catalog_admin_delete on storage.objects
   for delete to authenticated
   using (bucket_id = 'catalog' and public.is_admin());
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  V2 · Simplified orders, customer-editable orders, Rx→order, appointments
+--  Appended idempotently so re-running this file upgrades an existing database.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ── Orders: 'confirming' (prescription awaiting admin), 'placed', 'delivered' ─
+-- Remap any legacy rows, then tighten the constraint.
+alter table public.orders drop constraint if exists orders_status_check;
+update public.orders set status = 'placed'
+  where status in ('packed','shipped','cancelled');
+alter table public.orders
+  add constraint orders_status_check
+  check (status in ('confirming','placed','delivered'));
+alter table public.orders alter column status set default 'placed';
+
+-- Link an order back to the prescription it was built from (admin Rx flow).
+alter table public.orders add column if not exists prescription_id uuid
+  references public.prescriptions (id) on delete set null;
+
+-- Recompute an order's total from its current items.
+create or replace function public.recompute_order_total(p_order uuid)
+returns void language sql security definer set search_path = public as $$
+  update public.orders o
+    set total = coalesce(
+      (select sum(price * qty) from public.order_items where order_id = p_order), 0)
+    where o.id = p_order;
+$$;
+
+-- Customer-side order editing: add / change qty / remove an item while the
+-- order is still 'placed'. Runs as definer so it can move stock the customer
+-- otherwise can't touch. qty = 0 removes the line. Stock is reconciled by the
+-- delta between the old and new quantity.
+create or replace function public.update_order_item(
+  p_order uuid, p_product text, p_qty int
+)
+returns public.orders
+language plpgsql security definer set search_path = public as $$
+declare
+  v_uid      uuid := auth.uid();
+  v_order    public.orders;
+  v_product  public.products;
+  v_existing public.order_items;
+  v_delta    int;
+begin
+  if v_uid is null then raise exception 'Please sign in'; end if;
+  select * into v_order from public.orders where id = p_order for update;
+  if not found then raise exception 'Order not found'; end if;
+  if v_order.user_id <> v_uid then raise exception 'Not your order'; end if;
+  if v_order.status <> 'placed' then
+    raise exception 'This order can no longer be edited';
+  end if;
+  if p_qty < 0 then p_qty := 0; end if;
+
+  select * into v_product from public.products where id = p_product and active = true
+    for update;
+  if not found then raise exception 'Product is not available'; end if;
+
+  select * into v_existing from public.order_items
+    where order_id = p_order and product_id = p_product;
+
+  if found then
+    v_delta := p_qty - v_existing.qty;             -- positive => consume stock
+    if v_delta > 0 and v_product.stock < v_delta then
+      raise exception 'Not enough stock for %', v_product.name;
+    end if;
+    if p_qty = 0 then
+      delete from public.order_items where id = v_existing.id;
+    else
+      update public.order_items set qty = p_qty, price = v_product.price
+        where id = v_existing.id;
+    end if;
+    update public.products set stock = stock - v_delta where id = v_product.id;
+  elsif p_qty > 0 then
+    if v_product.stock < p_qty then
+      raise exception 'Not enough stock for %', v_product.name;
+    end if;
+    insert into public.order_items (order_id, product_id, name, price, qty)
+      values (p_order, v_product.id, v_product.name, v_product.price, p_qty);
+    update public.products set stock = stock - p_qty where id = v_product.id;
+  end if;
+
+  perform public.recompute_order_total(p_order);
+  select * into v_order from public.orders where id = p_order;
+  return v_order;
+end;
+$$;
+grant execute on function public.update_order_item(uuid, text, int) to authenticated;
+
+-- Customer uploads a prescription: store the file record AND open an order in
+-- the 'confirming' state immediately, so it shows in "My Orders" right away.
+-- Delivery details are captured here at upload time. Items/total are filled in
+-- later by the admin. Runs as definer so it can insert into orders.
+create or replace function public.create_prescription_order(
+  p_file_path text, p_note text, p_customer text, p_phone text, p_address text
+)
+returns public.orders
+language plpgsql security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_rx  uuid;
+  v_order public.orders;
+begin
+  if v_uid is null then raise exception 'Please sign in to upload a prescription'; end if;
+  if coalesce(trim(p_file_path), '') = '' then raise exception 'Missing file'; end if;
+  if coalesce(trim(p_address), '') = '' then raise exception 'Delivery address is required'; end if;
+
+  insert into public.prescriptions (user_id, file_path, note, status)
+  values (v_uid, p_file_path, coalesce(p_note, ''), 'submitted')
+  returning id into v_rx;
+
+  insert into public.orders
+    (user_id, customer, phone, address, total, status, payment_method, prescription_id)
+  values (
+    v_uid,
+    coalesce(nullif(trim(p_customer), ''), 'Customer'),
+    coalesce(p_phone, ''), p_address,
+    0, 'confirming', 'COD', v_rx
+  )
+  returning * into v_order;
+
+  return v_order;
+end;
+$$;
+grant execute on function
+  public.create_prescription_order(text, text, text, text, text) to authenticated;
+
+-- Admin confirms a prescription order: prices the chosen items from the DB,
+-- decrements stock, sets the total and moves the order 'confirming' → 'placed'.
+create or replace function public.admin_confirm_prescription_order(
+  p_order uuid, p_items jsonb
+)
+returns public.orders
+language plpgsql security definer set search_path = public as $$
+declare
+  v_order   public.orders;
+  v_item    jsonb;
+  v_product public.products;
+  v_qty     int;
+  v_total   int := 0;
+begin
+  if not public.is_admin() then raise exception 'Admins only'; end if;
+  if p_items is null or jsonb_typeof(p_items) <> 'array'
+     or jsonb_array_length(p_items) = 0 then
+    raise exception 'Add at least one item';
+  end if;
+
+  select * into v_order from public.orders where id = p_order for update;
+  if not found then raise exception 'Order not found'; end if;
+  if v_order.status <> 'confirming' then
+    raise exception 'This order has already been confirmed';
+  end if;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_qty := greatest(1, coalesce((v_item ->> 'qty')::int, 1));
+    select * into v_product from public.products where id = (v_item ->> 'id') for update;
+    if not found then raise exception 'A selected product no longer exists'; end if;
+    insert into public.order_items (order_id, product_id, name, price, qty)
+      values (v_order.id, v_product.id, v_product.name, v_product.price, v_qty);
+    update public.products set stock = greatest(0, stock - v_qty) where id = v_product.id;
+    v_total := v_total + v_product.price * v_qty;
+  end loop;
+
+  update public.orders set total = v_total, status = 'placed'
+    where id = v_order.id returning * into v_order;
+  if v_order.prescription_id is not null then
+    update public.prescriptions set status = 'fulfilled' where id = v_order.prescription_id;
+  end if;
+  return v_order;
+end;
+$$;
+grant execute on function
+  public.admin_confirm_prescription_order(uuid, jsonb) to authenticated;
+
+-- Admin rejects a prescription: marks it rejected and removes the empty
+-- 'confirming' order so it leaves the customer's open orders.
+create or replace function public.admin_reject_prescription(p_order uuid)
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_order public.orders;
+begin
+  if not public.is_admin() then raise exception 'Admins only'; end if;
+  select * into v_order from public.orders where id = p_order;
+  if not found then raise exception 'Order not found'; end if;
+  if v_order.status <> 'confirming' then
+    raise exception 'Only a pending order can be rejected';
+  end if;
+  if v_order.prescription_id is not null then
+    update public.prescriptions set status = 'rejected' where id = v_order.prescription_id;
+  end if;
+  delete from public.orders where id = p_order;
+end;
+$$;
+grant execute on function public.admin_reject_prescription(uuid) to authenticated;
+
+-- ── Doctors & appointments ─────────────────────────────────────────────────
+create table if not exists public.doctors (
+  id               text primary key,
+  name             text not null,
+  specialization   text not null default '',
+  qualification    text not null default '',
+  experience_years int  not null default 0,
+  fee              int  not null default 0,
+  bio              text not null default '',
+  image_url        text,
+  active           boolean not null default true,
+  sort_order       int  not null default 0,
+  created_at       timestamptz not null default now()
+);
+-- Weekly availability as time ranges ({ "0": [{"start":"09:45","end":"10:50"},
+-- ...], ... } keyed by weekday), a per-appointment length in minutes, and a
+-- list of blocked calendar dates ("YYYY-MM-DD"). Added via ALTER so existing
+-- databases pick them up on re-run. Empty availability = sensible default hours.
+alter table public.doctors add column if not exists availability jsonb
+  not null default '{}'::jsonb;
+alter table public.doctors add column if not exists slot_minutes int
+  not null default 30 check (slot_minutes between 5 and 240);
+alter table public.doctors add column if not exists blocked_dates text[]
+  not null default '{}'::text[];
+
+create table if not exists public.appointments (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users (id) on delete cascade,
+  doctor_id     text not null references public.doctors (id) on delete cascade,
+  patient_name  text not null default '',
+  phone         text not null default '',
+  slot_date     date not null,
+  slot_time     text not null,
+  note          text not null default '',
+  status        text not null default 'booked'
+                check (status in ('booked','completed','cancelled')),
+  created_at    timestamptz not null default now()
+);
+create index if not exists appointments_user_idx on public.appointments (user_id);
+-- One booking per doctor / date / time (cancelled bookings free the slot).
+create unique index if not exists appointments_slot_unique
+  on public.appointments (doctor_id, slot_date, slot_time)
+  where status <> 'cancelled';
+
+alter table public.doctors      enable row level security;
+alter table public.appointments enable row level security;
+
+drop policy if exists doctors_read on public.doctors;
+create policy doctors_read on public.doctors
+  for select using (active = true or public.is_admin());
+
+drop policy if exists doctors_write on public.doctors;
+create policy doctors_write on public.doctors
+  for all using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists appointments_insert_own on public.appointments;
+create policy appointments_insert_own on public.appointments
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists appointments_select on public.appointments;
+create policy appointments_select on public.appointments
+  for select using (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists appointments_update on public.appointments;
+create policy appointments_update on public.appointments
+  for update using (auth.uid() = user_id or public.is_admin())
+  with check (auth.uid() = user_id or public.is_admin());
+
+-- Seed a handful of doctors (safe to re-run).
+insert into public.doctors
+  (id, name, specialization, qualification, experience_years, fee, bio, sort_order) values
+  ('dr-mehta',  'Dr. Anjali Mehta',  'General Physician', 'MBBS, MD',          12, 400, 'Family medicine and everyday illnesses — fever, infections, lifestyle conditions.', 0),
+  ('dr-rao',    'Dr. Vikram Rao',    'Cardiologist',      'MBBS, DM (Cardio)', 15, 800, 'Heart health, blood pressure and cholesterol management.', 1),
+  ('dr-iyer',   'Dr. Priya Iyer',    'Dermatologist',     'MBBS, MD (Derma)',   9, 600, 'Skin, hair and nail care for all ages.', 2),
+  ('dr-khan',   'Dr. Imran Khan',    'Pediatrician',      'MBBS, DCH',         11, 500, 'Newborn, infant and child health and vaccinations.', 3),
+  ('dr-nair',   'Dr. Sandeep Nair',  'Orthopedic',        'MBBS, MS (Ortho)',  14, 700, 'Bone, joint and sports injury care.', 4)
+on conflict (id) do nothing;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 --  BOOTSTRAP YOUR FIRST ADMIN

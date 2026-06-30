@@ -15,9 +15,13 @@ import type {
   AdminCategory,
   AdminData,
   AdminProduct,
+  Appointment,
+  AppointmentStatus,
   Banner,
+  Doctor,
   Order,
   OrderStatus,
+  Prescription,
 } from "./types";
 
 /**
@@ -32,7 +36,18 @@ import type {
  * ─────────────────────────────────────────────────────────────────────────
  */
 
-const EMPTY: AdminData = { products: [], orders: [], categories: [], banners: [] };
+const EMPTY: AdminData = {
+  products: [],
+  orders: [],
+  categories: [],
+  banners: [],
+  doctors: [],
+  appointments: [],
+  prescriptions: [],
+};
+
+/** An item line the admin assembles when building an order from a prescription. */
+export type OrderDraftItem = { id: string; qty: number };
 
 type AdminValue = {
   /** False until the initial auth + data load has finished (avoids flashes). */
@@ -74,6 +89,34 @@ type AdminValue = {
   addBanner: (b: Banner) => Promise<void>;
   updateBanner: (id: string, patch: Partial<Banner>) => Promise<void>;
   deleteBanner: (id: string) => Promise<void>;
+
+  /* doctors */
+  addDoctor: (d: Doctor) => Promise<void>;
+  updateDoctor: (id: string, patch: Partial<Doctor>) => Promise<void>;
+  deleteDoctor: (id: string) => Promise<void>;
+
+  /* appointments */
+  updateAppointmentStatus: (
+    id: string,
+    status: AppointmentStatus,
+  ) => Promise<void>;
+
+  /* prescriptions */
+  updatePrescriptionStatus: (
+    id: string,
+    status: Prescription["status"],
+  ) => Promise<void>;
+  /** Signed, time-limited URL to view an uploaded prescription file. */
+  prescriptionUrl: (filePath: string) => Promise<string | null>;
+  /** Add items to the prescription's pending order and move it to 'placed'. */
+  confirmPrescriptionOrder: (
+    orderId: string,
+    items: OrderDraftItem[],
+  ) => Promise<{ ok: boolean; error?: string }>;
+  /** Reject the prescription and remove its pending order. */
+  rejectPrescription: (
+    orderId: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
 };
 
 const AdminContext = createContext<AdminValue | null>(null);
@@ -184,6 +227,69 @@ function mapOrder(r: Row): Order {
     status: r.status as OrderStatus,
     paymentMethod: r.payment_method as "COD" | "Online",
     placedAt: ((r.placed_at as string) ?? "").slice(0, 10),
+    prescriptionId: (r.prescription_id as string) ?? null,
+  };
+}
+
+function mapDoctor(r: Row): Doctor {
+  return {
+    id: r.id as string,
+    name: r.name as string,
+    specialization: (r.specialization as string) ?? "",
+    qualification: (r.qualification as string) ?? "",
+    experienceYears: (r.experience_years as number) ?? 0,
+    fee: (r.fee as number) ?? 0,
+    bio: (r.bio as string) ?? "",
+    imageUrl: (r.image_url as string) ?? undefined,
+    active: (r.active as boolean) ?? true,
+    availability:
+      (r.availability as Doctor["availability"]) ?? {},
+    slotMinutes: (r.slot_minutes as number) ?? 30,
+    blockedDates: (r.blocked_dates as string[]) ?? [],
+  };
+}
+
+function doctorToRow(d: Partial<Doctor>): Row {
+  const row: Row = {};
+  if (d.id !== undefined) row.id = d.id;
+  if (d.name !== undefined) row.name = d.name;
+  if (d.specialization !== undefined) row.specialization = d.specialization;
+  if (d.qualification !== undefined) row.qualification = d.qualification;
+  if (d.experienceYears !== undefined) row.experience_years = d.experienceYears;
+  if (d.fee !== undefined) row.fee = d.fee;
+  if (d.bio !== undefined) row.bio = d.bio;
+  if (d.imageUrl !== undefined) row.image_url = d.imageUrl ?? null;
+  if (d.active !== undefined) row.active = d.active;
+  if (d.availability !== undefined) row.availability = d.availability;
+  if (d.slotMinutes !== undefined) row.slot_minutes = d.slotMinutes;
+  if (d.blockedDates !== undefined) row.blocked_dates = d.blockedDates;
+  return row;
+}
+
+function mapAppointment(r: Row): Appointment {
+  const doctor = r.doctors as Row | null;
+  return {
+    id: r.id as string,
+    doctorId: r.doctor_id as string,
+    doctorName: (doctor?.name as string) ?? "Doctor",
+    patientName: (r.patient_name as string) ?? "",
+    phone: (r.phone as string) ?? "",
+    slotDate: ((r.slot_date as string) ?? "").slice(0, 10),
+    slotTime: (r.slot_time as string) ?? "",
+    note: (r.note as string) ?? "",
+    status: r.status as AppointmentStatus,
+    createdAt: (r.created_at as string) ?? "",
+  };
+}
+
+function mapPrescription(r: Row): Prescription {
+  return {
+    id: r.id as string,
+    userId: r.user_id as string,
+    filePath: r.file_path as string,
+    note: (r.note as string) ?? "",
+    status: r.status as Prescription["status"],
+    createdAt: (r.created_at as string) ?? "",
   };
 }
 
@@ -200,20 +306,33 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [products, orders, categories, banners] = await Promise.all([
-      supabase.from("products").select("*").order("sort_order"),
-      supabase
-        .from("orders")
-        .select("*, order_items(product_id, name, price, qty)")
-        .order("placed_at", { ascending: false }),
-      supabase.from("categories").select("*").order("sort_order"),
-      supabase.from("banners").select("*").order("sort_order"),
-    ]);
+    const [products, orders, categories, banners, doctors, appointments, prescriptions] =
+      await Promise.all([
+        supabase.from("products").select("*").order("sort_order"),
+        supabase
+          .from("orders")
+          .select("*, order_items(product_id, name, price, qty)")
+          .order("placed_at", { ascending: false }),
+        supabase.from("categories").select("*").order("sort_order"),
+        supabase.from("banners").select("*").order("sort_order"),
+        supabase.from("doctors").select("*").order("sort_order"),
+        supabase
+          .from("appointments")
+          .select("*, doctors(name)")
+          .order("slot_date", { ascending: false }),
+        supabase
+          .from("prescriptions")
+          .select("*")
+          .order("created_at", { ascending: false }),
+      ]);
     setData({
       products: (products.data ?? []).map(mapProduct),
       orders: (orders.data ?? []).map(mapOrder),
       categories: (categories.data ?? []).map(mapCategory),
       banners: (banners.data ?? []).map(mapBanner),
+      doctors: (doctors.data ?? []).map(mapDoctor),
+      appointments: (appointments.data ?? []).map(mapAppointment),
+      prescriptions: (prescriptions.data ?? []).map(mapPrescription),
     });
     setLoading(false);
   }, [supabase]);
@@ -447,6 +566,141 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
     [supabase, loadData],
   );
 
+  /* ── doctors ──────────────────────────────────────────────────────── */
+  const addDoctor = useCallback(
+    async (doc: Doctor) => {
+      const sort_order = data.doctors.length;
+      setData((d) => ({ ...d, doctors: [...d.doctors, doc] }));
+      const { error } = await supabase
+        .from("doctors")
+        .insert({ ...doctorToRow(doc), sort_order });
+      if (error) {
+        console.error(error);
+        await loadData();
+      }
+    },
+    [supabase, loadData, data.doctors.length],
+  );
+
+  const updateDoctor = useCallback(
+    async (id: string, patch: Partial<Doctor>) => {
+      setData((d) => ({
+        ...d,
+        doctors: d.doctors.map((doc) =>
+          doc.id === id ? { ...doc, ...patch } : doc,
+        ),
+      }));
+      const { error } = await supabase
+        .from("doctors")
+        .update(doctorToRow(patch))
+        .eq("id", id);
+      if (error) {
+        console.error(error);
+        await loadData();
+      }
+    },
+    [supabase, loadData],
+  );
+
+  const deleteDoctor = useCallback(
+    async (id: string) => {
+      setData((d) => ({ ...d, doctors: d.doctors.filter((doc) => doc.id !== id) }));
+      const { error } = await supabase.from("doctors").delete().eq("id", id);
+      if (error) {
+        console.error(error);
+        await loadData();
+      }
+    },
+    [supabase, loadData],
+  );
+
+  /* ── appointments ─────────────────────────────────────────────────── */
+  const updateAppointmentStatus = useCallback(
+    async (id: string, status: AppointmentStatus) => {
+      setData((d) => ({
+        ...d,
+        appointments: d.appointments.map((a) =>
+          a.id === id ? { ...a, status } : a,
+        ),
+      }));
+      const { error } = await supabase
+        .from("appointments")
+        .update({ status })
+        .eq("id", id);
+      if (error) {
+        console.error(error);
+        await loadData();
+      }
+    },
+    [supabase, loadData],
+  );
+
+  /* ── prescriptions ────────────────────────────────────────────────── */
+  const updatePrescriptionStatus = useCallback(
+    async (id: string, status: Prescription["status"]) => {
+      setData((d) => ({
+        ...d,
+        prescriptions: d.prescriptions.map((p) =>
+          p.id === id ? { ...p, status } : p,
+        ),
+      }));
+      const { error } = await supabase
+        .from("prescriptions")
+        .update({ status })
+        .eq("id", id);
+      if (error) {
+        console.error(error);
+        await loadData();
+      }
+    },
+    [supabase, loadData],
+  );
+
+  const prescriptionUrl = useCallback(
+    async (filePath: string) => {
+      const { data, error } = await supabase.storage
+        .from("prescriptions")
+        .createSignedUrl(filePath, 60 * 10);
+      if (error) {
+        console.error(error);
+        return null;
+      }
+      return data.signedUrl;
+    },
+    [supabase],
+  );
+
+  const confirmPrescriptionOrder = useCallback(
+    async (orderId: string, items: OrderDraftItem[]) => {
+      const { error } = await supabase.rpc("admin_confirm_prescription_order", {
+        p_order: orderId,
+        p_items: items,
+      });
+      if (error) {
+        console.error(error);
+        return { ok: false, error: error.message };
+      }
+      await loadData();
+      return { ok: true };
+    },
+    [supabase, loadData],
+  );
+
+  const rejectPrescription = useCallback(
+    async (orderId: string) => {
+      const { error } = await supabase.rpc("admin_reject_prescription", {
+        p_order: orderId,
+      });
+      if (error) {
+        console.error(error);
+        return { ok: false, error: error.message };
+      }
+      await loadData();
+      return { ok: true };
+    },
+    [supabase, loadData],
+  );
+
   const value = useMemo<AdminValue>(
     () => ({
       hydrated,
@@ -469,6 +723,14 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
       addBanner,
       updateBanner,
       deleteBanner,
+      addDoctor,
+      updateDoctor,
+      deleteDoctor,
+      updateAppointmentStatus,
+      updatePrescriptionStatus,
+      prescriptionUrl,
+      confirmPrescriptionOrder,
+      rejectPrescription,
     }),
     [
       hydrated,
@@ -491,6 +753,14 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
       addBanner,
       updateBanner,
       deleteBanner,
+      addDoctor,
+      updateDoctor,
+      deleteDoctor,
+      updateAppointmentStatus,
+      updatePrescriptionStatus,
+      prescriptionUrl,
+      confirmPrescriptionOrder,
+      rejectPrescription,
     ],
   );
 

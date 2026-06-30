@@ -74,11 +74,9 @@ export function StatCard({
 
 /* ── Status pill ──────────────────────────────────────────────────────── */
 const STATUS_TONE: Record<OrderStatus, string> = {
+  confirming: "bg-violet-50 text-violet-700 ring-violet-200",
   placed: "bg-amber-50 text-amber-700 ring-amber-200",
-  packed: "bg-sky-100 text-sky-600 ring-sky-200",
-  shipped: "bg-violet-50 text-violet-700 ring-violet-200",
   delivered: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  cancelled: "bg-rose-50 text-rose-700 ring-rose-200",
 };
 
 export function StatusPill({ status }: { status: OrderStatus }) {

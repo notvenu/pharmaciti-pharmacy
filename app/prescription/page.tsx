@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Header } from "@/components/Header";
 import { BottomNav } from "@/components/BottomNav";
+import { AddressBook } from "@/components/AddressBook";
 import { createClient } from "@/lib/supabase/client";
 
 const FLOW = [
@@ -39,9 +40,30 @@ export default function PrescriptionPage() {
   const [supabase] = useState(() => createClient());
   const [file, setFile] = useState<File | null>(null);
   const [note, setNote] = useState("");
+  const [form, setForm] = useState({ customer: "", phone: "", address: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  const [orderNo, setOrderNo] = useState<number | null>(null);
+
+  // Prefill name + phone from the signed-in customer's profile.
+  useEffect(() => {
+    (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name, phone")
+        .eq("id", user.id)
+        .maybeSingle();
+      setForm((f) => ({
+        ...f,
+        customer: profile?.full_name ?? f.customer,
+        phone: profile?.phone ?? user.phone ?? f.phone,
+      }));
+    })();
+  }, [supabase]);
 
   function pick(f: File | null) {
     setError(null);
@@ -55,6 +77,10 @@ export default function PrescriptionPage() {
   async function submit() {
     if (!file) {
       setError("Please choose a prescription file first.");
+      return;
+    }
+    if (!form.address.trim()) {
+      setError("Please enter a delivery address.");
       return;
     }
     setBusy(true);
@@ -81,18 +107,27 @@ export default function PrescriptionPage() {
       return;
     }
 
-    const { error: dbErr } = await supabase
-      .from("prescriptions")
-      .insert({ user_id: user.id, file_path: path, note: note.trim() });
+    // Creates the prescription record AND opens a "confirming" order so it
+    // shows in My Orders immediately.
+    const { data, error: rpcErr } = await supabase.rpc(
+      "create_prescription_order",
+      {
+        p_file_path: path,
+        p_note: note.trim(),
+        p_customer: form.customer.trim(),
+        p_phone: form.phone.trim(),
+        p_address: form.address.trim(),
+      },
+    );
     setBusy(false);
-    if (dbErr) {
-      setError(dbErr.message);
+    if (rpcErr || !data) {
+      setError(rpcErr?.message ?? "Could not submit your prescription.");
       return;
     }
-    setDone(true);
+    setOrderNo(data.order_no);
   }
 
-  if (done) {
+  if (orderNo !== null) {
     return (
       <div className="mx-auto w-full max-w-[1200px]">
         <Header variant="inner" title="Prescription sent" />
@@ -102,21 +137,23 @@ export default function PrescriptionPage() {
             Prescription received
           </h1>
           <p className="max-w-sm text-sm text-muted">
-            Our pharmacist will review it and get in touch to confirm your
-            order.
+            Order <span className="font-bold text-ink">PH-{orderNo}</span> is now
+            in <span className="font-bold text-violet-600">Confirming</span>.
+            Our pharmacist will review your prescription, add the medicines and
+            confirm it. Track it under My Orders.
           </p>
           <div className="mt-3 flex gap-3">
             <Link
-              href="/products"
+              href="/orders"
               className="rounded-xl bg-sea-500 px-5 py-2.5 text-sm font-bold text-white"
             >
-              Continue shopping
+              View my orders
             </Link>
             <Link
-              href="/orders"
+              href="/products"
               className="rounded-xl border border-hairline px-5 py-2.5 text-sm font-bold text-ink"
             >
-              My orders
+              Continue shopping
             </Link>
           </div>
         </div>
@@ -233,6 +270,25 @@ export default function PrescriptionPage() {
           placeholder="Anything we should know? (optional)"
           className="mt-3 w-full rounded-xl border border-hairline bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition placeholder:text-muted/70 focus:border-sea-400 focus:ring-2 focus:ring-sea-200"
         />
+
+        {/* Delivery details (used to fulfil the order once confirmed) */}
+        <div className="mt-4 rounded-2xl border border-hairline bg-white p-4 shadow-card">
+          <h2 className="text-sm font-bold text-ink">Delivery address</h2>
+          <p className="mt-0.5 mb-3 text-[12px] text-muted">
+            We&apos;ll deliver here once the pharmacist confirms your order.
+          </p>
+          <AddressBook
+            prefill={{ recipient: form.customer, phone: form.phone }}
+            onSelect={(a) =>
+              setForm((f) => ({
+                ...f,
+                customer: a?.recipient || f.customer,
+                phone: a?.phone || f.phone,
+                address: a?.line ?? "",
+              }))
+            }
+          />
+        </div>
 
         {error && (
           <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-[13px] font-semibold text-rose-600">

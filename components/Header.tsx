@@ -89,8 +89,14 @@ export function Header({ variant = "home", title }: Props) {
             <Link href="/products" className="hover:text-sea-600">
               Shop
             </Link>
-            <Link href="/products?cat=lab-tests" className="hover:text-sea-600">
-              Lab Tests
+            <Link href="/appointment" className="hover:text-sea-600">
+              Doctors
+            </Link>
+            <Link href="/prescription" className="hover:text-sea-600">
+              Upload Rx
+            </Link>
+            <Link href="/orders" className="hover:text-sea-600">
+              My Orders
             </Link>
           </nav>
           <Link

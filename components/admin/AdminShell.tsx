@@ -8,6 +8,8 @@ import {
   Package,
   ClipboardList,
   LayoutGrid,
+  FileText,
+  Stethoscope,
   LogOut,
   Menu,
   X,
@@ -28,6 +30,8 @@ const NAV: NavItem[] = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { href: "/admin/products", label: "Products", icon: Package },
   { href: "/admin/orders", label: "Orders", icon: ClipboardList },
+  { href: "/admin/prescriptions", label: "Prescriptions", icon: FileText },
+  { href: "/admin/doctors", label: "Doctors & Appointments", icon: Stethoscope },
   { href: "/admin/catalog", label: "Categories & Banners", icon: LayoutGrid },
 ];
 

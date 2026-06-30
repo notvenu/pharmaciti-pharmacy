@@ -21,6 +21,7 @@ import { CategoryIcon } from "@/components/CategoryIcon";
 import { getCategory } from "@/lib/products";
 import { createClient } from "@/lib/supabase/client";
 import { placeOrder } from "@/lib/actions/orders";
+import { AddressBook } from "@/components/AddressBook";
 
 export default function CartPage() {
   const router = useRouter();
@@ -75,7 +76,7 @@ export default function CartPage() {
 
   async function submitOrder() {
     if (!form.address.trim()) {
-      setError("Please enter a delivery address.");
+      setError("Please select or add a delivery address.");
       return;
     }
     setPlacing(true);
@@ -338,30 +339,20 @@ export default function CartPage() {
             </div>
 
             <div className="space-y-3.5">
-              <Input
-                label="Full name"
-                value={form.customer}
-                onChange={(v) => setForm((f) => ({ ...f, customer: v }))}
-                placeholder="e.g. Aarav Sharma"
-              />
-              <Input
-                label="Phone"
-                value={form.phone}
-                onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
-                placeholder="+91 98765 43210"
-              />
               <div>
-                <label className="mb-1.5 block text-[13px] font-semibold text-ink">
+                <span className="mb-1.5 block text-[13px] font-semibold text-ink">
                   Delivery address
-                </label>
-                <textarea
-                  rows={3}
-                  value={form.address}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, address: e.target.value }))
+                </span>
+                <AddressBook
+                  prefill={{ recipient: form.customer, phone: form.phone }}
+                  onSelect={(a) =>
+                    setForm((f) => ({
+                      ...f,
+                      customer: a?.recipient || f.customer,
+                      phone: a?.phone || f.phone,
+                      address: a?.line ?? "",
+                    }))
                   }
-                  placeholder="House no, street, area, city, PIN"
-                  className="w-full rounded-xl border border-hairline bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition placeholder:text-muted/70 focus:border-sea-400 focus:ring-2 focus:ring-sea-200"
                 />
               </div>
               <div>
@@ -438,28 +429,3 @@ function Row({
   );
 }
 
-function Input({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-}) {
-  return (
-    <div>
-      <label className="mb-1.5 block text-[13px] font-semibold text-ink">
-        {label}
-      </label>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full rounded-xl border border-hairline bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition placeholder:text-muted/70 focus:border-sea-400 focus:ring-2 focus:ring-sea-200"
-      />
-    </div>
-  );
-}

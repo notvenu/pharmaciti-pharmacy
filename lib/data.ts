@@ -155,7 +155,12 @@ export async function getActiveBanners(): Promise<Banner[]> {
 
 /* ── Orders (customer-facing) ──────────────────────────────────────────── */
 
-export type StoreOrderItem = { productId: string | null; name: string; qty: number };
+export type StoreOrderItem = {
+  productId: string | null;
+  name: string;
+  price: number;
+  qty: number;
+};
 export type StoreOrder = {
   id: string;
   orderNo: number;
@@ -173,7 +178,9 @@ type OrderWithItemsRow = {
   payment_method: PaymentMethodDb;
   total: number;
   placed_at: string;
-  order_items: { product_id: string | null; name: string; qty: number }[] | null;
+  order_items:
+    | { product_id: string | null; name: string; price: number; qty: number }[]
+    | null;
 };
 
 /** Orders belonging to the signed-in user (RLS enforces ownership). */
@@ -181,7 +188,9 @@ export async function getMyOrders(): Promise<StoreOrder[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("orders")
-    .select("id, order_no, status, payment_method, total, placed_at, order_items(product_id, name, qty)")
+    .select(
+      "id, order_no, status, payment_method, total, placed_at, order_items(product_id, name, price, qty)",
+    )
     .order("placed_at", { ascending: false });
 
   const rows = (data ?? []) as unknown as OrderWithItemsRow[];
@@ -195,7 +204,47 @@ export async function getMyOrders(): Promise<StoreOrder[]> {
     items: (o.order_items ?? []).map((it) => ({
       productId: it.product_id,
       name: it.name,
+      price: it.price,
       qty: it.qty,
     })),
+  }));
+}
+
+/* ── Doctors (appointments) ────────────────────────────────────────────── */
+
+export type StoreDoctor = {
+  id: string;
+  name: string;
+  specialization: string;
+  qualification: string;
+  experienceYears: number;
+  fee: number;
+  bio: string;
+  imageUrl?: string;
+  availability: Record<string, { start: string; end: string }[]>;
+  slotMinutes: number;
+  blockedDates: string[];
+};
+
+/** Active doctors for the public appointments page, in display order. */
+export async function getDoctors(): Promise<StoreDoctor[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("doctors")
+    .select("*")
+    .eq("active", true)
+    .order("sort_order", { ascending: true });
+  return (data ?? []).map((d) => ({
+    id: d.id,
+    name: d.name,
+    specialization: d.specialization,
+    qualification: d.qualification,
+    experienceYears: d.experience_years,
+    fee: d.fee,
+    bio: d.bio,
+    imageUrl: d.image_url ?? undefined,
+    availability: d.availability ?? {},
+    slotMinutes: d.slot_minutes ?? 30,
+    blockedDates: d.blocked_dates ?? [],
   }));
 }
